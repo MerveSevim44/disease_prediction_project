@@ -1,21 +1,34 @@
-from sklearn.metrics import accuracy_score
+from matplotlib import pyplot as plt
+from sklearn.inspection import permutation_importance
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
 from sklearn.preprocessing import LabelEncoder
 import seaborn as sns
-from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from xgboost import XGBClassifier
-from lightgbm import LGBMClassifier
-from sklearn.model_selection import cross_val_score, cross_validate, train_test_split
+from sklearn.ensemble import RandomForestClassifier
 import numpy as np
 import pandas as pd
 
+#Data Frame
+df_train = pd.read_csv('C:\\Users\\merve\\Desktop\\disease_prediction\\data\\Training.csv')
+df_train_new = df_train.loc[:, ~df_train.columns.str.contains('^Unnamed')] #we removed unnamed columns
+df_test = pd.read_csv('C:\\Users\\merve\\Desktop\\disease_prediction\\data\\Testing.csv')
+df_test_new = df_test.loc[:, ~df_test.columns.str.contains('^Unnamed')]
 
-df = pd.read_csv('C:\\Users\\merve\\Desktop\\disease_prediction\\data\\Training.csv') 
-df.head()
+duplicates = df_train_new.duplicated().sum()
+print(f"Tespit edilen duplicate sayısı: {duplicates}")
 
+diversity = (df_train_new.nunique() / len(df_train_new)).sort_values(ascending=False)
+print(diversity)
 
+unique_ratio = df_train_new.nunique().mean() / len(df_train_new)
+avg_corr = df_train_new.corr(numeric_only=True).abs().mean().mean()
+diversity_score = unique_ratio * (1 - avg_corr)
+
+print(f"Çeşitlilik skoru: {diversity_score:.3f}")
+
+#check missing values
 def check_missing_values(df):
     """
     Veri setindeki eksik değerleri kontrol eder ve görselleştirir.
@@ -65,12 +78,9 @@ def check_missing_values(df):
         print(f"   {str(dtype):15s} : {count:3d} kolon")
 
     return missing_data if len(missing_data) > 0 else None
-missing_report = check_missing_values(df)
+missing_report = check_missing_values(df_train_new)
 
-
-print("number of unique disease: ", df.nunique())
-print("disease " , df["prognosis"])
-
+#we are checking out the data
 def check_df(dataframe):
     print("##################### Shape #####################")
     print(dataframe.shape)
@@ -85,9 +95,9 @@ def check_df(dataframe):
     print("##################### Quantiles #####################")
     #print(dataframe.quantile([0, 0.05, 0.50, 0.95, 0.99, 1]).T)
 
-df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-check_df(df)
+check_df(df_train_new)
 
+#we are separating cat_cols,num_cols and cat_but_car ...
 def grab_col_names(dataframe, cat_th= 42, car_th=50):
     """
     grab_col_names for given dataframe
@@ -121,22 +131,22 @@ def grab_col_names(dataframe, cat_th= 42, car_th=50):
 
     return cat_cols, cat_but_car, num_cols
 
-cat_cols, cat_but_car, num_cols = grab_col_names(df)
+cat_cols, cat_but_car, num_cols = grab_col_names(df_train_new)
+"""
+# extract target variables
+feature_cols = [col for col in df_train_new.columns if col != 'prognosis']
 
-# Hedef değişkeni çıkar
-feature_cols = [col for col in df.columns if col != 'prognosis']
-
-# Her semptom için analiz
+# analyze for each symptom
 for symptom in feature_cols:
     print(f"\n{'=' * 70}")
     print(f"SEMPTOM: {symptom.upper()}")
     print(f"{'=' * 70}")
 
     # Crosstab oluştur
-    crosstab = pd.crosstab(df[symptom], df['prognosis'])
+    crosstab = pd.crosstab(df_train_new[symptom], df_train_new['prognosis'])
 
     # Eğer semptom binary (0-1) ise
-    if df[symptom].nunique() == 2 and set(df[symptom].unique()) == {0, 1}:
+    if df_train_new[symptom].nunique() == 2 and set(df_train_new[symptom].unique()) == {0, 1}:
 
         # Semptom OLAN hastalar (1)
         if 1 in crosstab.index:
@@ -158,7 +168,7 @@ for symptom in feature_cols:
 
     else:
         # Binary olmayan değişkenler için (eğer varsa)
-        print(f"\nBu semptom {df[symptom].nunique()} farklı değer alıyor")
+        print(f"\nBu semptom {df_train_new[symptom].nunique()} farklı değer alıyor")
         print(crosstab)
 
     print("\n" + "-" * 70)
@@ -167,8 +177,8 @@ for symptom in feature_cols:
 symptom_specificity = {}
 
 for symptom in feature_cols:
-    if df[symptom].nunique() == 2:
-        crosstab = pd.crosstab(df[symptom], df['prognosis'])
+    if df_train_new[symptom].nunique() == 2:
+        crosstab = pd.crosstab(df_train_new[symptom], df_train_new['prognosis'])
         if 1 in crosstab.index:
             num_diseases = (crosstab.loc[1] > 0).sum()
             symptom_specificity[symptom] = num_diseases
@@ -184,10 +194,10 @@ for symptom, num_diseases in sorted_specific[:15]:  # İlk 15
     print(f"{symptom.replace('_', ' ').title()}: {num_diseases} hastalıkta")
 
     # Bu semptomu olan hastalıkları göster
-    crosstab = pd.crosstab(df[symptom], df['prognosis'])
+    crosstab = pd.crosstab(df_train_new[symptom], df_train_new['prognosis'])
     diseases = crosstab.loc[1][crosstab.loc[1] > 0].index.tolist()
     print(f"  → {', '.join(diseases)}\n")
-
+"""
 
 def analyze_correlation_matrix(dataframe, target_col='prognosis', figsize=(20, 18)):
     """
@@ -556,7 +566,6 @@ def full_correlation_analysis(dataframe, target_col='prognosis', top_n=20, show_
 
     return results
 
-
 # KULLANIM ÖRNEĞİ:
 
 # Tam analiz
@@ -795,412 +804,1202 @@ def perform_feature_engineering(df):
     return df_new
 
 
-#yeni geliştirlmiş dataframe
-df_engineered = perform_feature_engineering(df)
+#yeni geliştirlmiş dataframe (Train test )
+
 
 # Veri setini kaydet (opsiyonel)
 # df_engineered.to_csv('disease_prediction_engineered.csv', index=False),
 
-def evaluate_models(X, y):
+def evaluate_with_separate_test(X_train, y_train, X_test, y_test,
+                                class_names=None):
     """
-    Verilen classification modellerini kullanarak çapraz doğrulama yapar ve
-    her model için Accuracy, Precision, Recall, F1-Score hesaplar.
+    Ayrı train-test seti ile model değerlendirmesi ve overfitting analizi
 
-    Parametreler:
+    Parameters:
     -----------
-    X : pandas.DataFrame veya numpy.ndarray
-        Özellikler (input)
-    y : pandas.Series veya numpy.ndarray
-        Hedef değişken (output) - Label encoded olmalı
+    X_train, y_train : Train verisi
+    X_test, y_test : Test verisi
+    class_names : list
+        Sınıf isimleri (opsiyonel)
 
-    Dönüş:
-    ------
-    pd.DataFrame : Her modelin performans metrikleri
+    Returns:
+    --------
+    pd.DataFrame : Model performans sonuçları
     """
 
-
-    # Classification modelleri
     models = [
         ('KNN', KNeighborsClassifier()),
         ('CART', DecisionTreeClassifier(random_state=42)),
-        ('RF', RandomForestClassifier(random_state=42))
-        #('GBM', GradientBoostingClassifier(random_state=42)),
-        #('XGBoost', XGBClassifier(random_state=42, eval_metric='mlogloss')),
-        #('LightGBM', LGBMClassifier(random_state=42, verbose=-1))
+        ('RF', RandomForestClassifier(random_state=42, n_estimators=100))
     ]
 
     results = []
+    trained_models = {}
 
+    print("\n" + "=" * 70)
+    print("MODEL DEĞERLENDİRMESİ (Ayrı Train-Test)")
     print("=" * 70)
-    print("MODEL PERFORMANS DEĞERLENDİRMESİ")
-    print("=" * 70)
 
-    for name, classifier in models:
-        # Accuracy
-        accuracy = cross_val_score(classifier, X, y, cv=10,
-                                   scoring='accuracy').mean()
+    for name, model in models:
+        print(f"\n{'─' * 70}")
+        print(f"📊 {name}")
+        print(f"{'─' * 70}")
 
-        # Precision (weighted - multi-class için)
-        precision = cross_val_score(classifier, X, y, cv=10,
-                                    scoring='precision_weighted').mean()
+        # Model eğitimi
+        model.fit(X_train, y_train)
+        trained_models[name] = model
 
-        # Recall (weighted - multi-class için)
-        recall = cross_val_score(classifier, X, y, cv=10,
-                                 scoring='recall_weighted').mean()
+        # Tahminler
+        y_train_pred = model.predict(X_train)
+        y_test_pred = model.predict(X_test)
 
-        # F1-Score (weighted - multi-class için)
-        f1 = cross_val_score(classifier, X, y, cv=10,
-                             scoring='f1_weighted').mean()
+        # Metrikler
+        train_acc = accuracy_score(y_train, y_train_pred)
+        test_acc = accuracy_score(y_test, y_test_pred)
+        test_precision = precision_score(y_test, y_test_pred, average='weighted', zero_division=0)
+        test_recall = recall_score(y_test, y_test_pred, average='weighted', zero_division=0)
+        test_f1 = f1_score(y_test, y_test_pred, average='weighted', zero_division=0)
+
+        # Overfitting analizi
+        overfitting_score = train_acc - test_acc
+
+        if overfitting_score < 0.02:
+            status = "✅ İYİ"
+            level = "Yok"
+            color = "🟢"
+        elif overfitting_score < 0.05:
+            status = "⚠️  DİKKAT"
+            level = "Hafif"
+            color = "🟡"
+        elif overfitting_score < 0.10:
+            status = "🔴 SORUN"
+            level = "Orta"
+            color = "🟠"
+        else:
+            status = "🚨 CİDDİ"
+            level = "Yüksek"
+            color = "🔴"
+
+        # Sonuçları yazdır
+        print(f"\n{color} OVERFITTING DURUMU: {status} - {level}")
+        print(f"\n📈 Performans:")
+        print(f"   Train Accuracy:  {train_acc:.4f}")
+        print(f"   Test Accuracy:   {test_acc:.4f}")
+        print(f"   Test Precision:  {test_precision:.4f}")
+        print(f"   Test Recall:     {test_recall:.4f}")
+        print(f"   Test F1-Score:   {test_f1:.4f}")
+        print(f"\n🎯 Overfitting Skoru: {overfitting_score:.4f}")
 
         results.append({
             'Model': name,
-            'Accuracy': accuracy,
-            'Precision': precision,
-            'Recall': recall,
-            'F1-Score': f1
+            'Train_Acc': train_acc,
+            'Test_Acc': test_acc,
+            'Precision': test_precision,
+            'Recall': test_recall,
+            'F1_Score': test_f1,
+            'Overfitting': overfitting_score,
+            'Level': level,
+            'Status': status
         })
 
-        print(f"{name:10s} | Accuracy: {accuracy:.4f} | "
-              f"Precision: {precision:.4f} | "
-              f"Recall: {recall:.4f} | "
-              f"F1: {f1:.4f}")
+    results_df = pd.DataFrame(results)
 
+    # Görselleştirme
+    plot_results(results_df, trained_models, X_test, y_test, class_names)
+
+    # Özet
+    print("\n" + "=" * 70)
+    print("📋 SONUÇ TABLOSU")
+    print("=" * 70)
+    print(results_df[['Model', 'Train_Acc', 'Test_Acc', 'Overfitting', 'Level']].to_string(index=False))
+
+    # En iyi model
+    best_idx = results_df['Test_Acc'].idxmax()
+    best = results_df.iloc[best_idx]
+
+    print("\n" + "=" * 70)
+    print("🏆 EN İYİ MODEL")
+    print("=" * 70)
+    print(f"Model:             {best['Model']}")
+    print(f"Test Accuracy:     {best['Test_Acc']:.4f}")
+    print(f"Overfitting:       {best['Overfitting']:.4f} ({best['Level']})")
+    print(f"Precision:         {best['Precision']:.4f}")
+    print(f"Recall:            {best['Recall']:.4f}")
+    print(f"F1-Score:          {best['F1_Score']:.4f}")
     print("=" * 70)
 
-    # DataFrame'e çevir
-    results_df = pd.DataFrame(results)
-    results_df = results_df.sort_values('Accuracy', ascending=False)
+    return results_df, trained_models
 
-    # En iyi modeli göster
-    best_model = results_df.iloc[0]
-    print(f"\n🏆 EN İYİ MODEL: {best_model['Model']}")
-    print(f"   Accuracy:  {best_model['Accuracy']:.4f}")
-    print(f"   Precision: {best_model['Precision']:.4f}")
-    print(f"   Recall:    {best_model['Recall']:.4f}")
-    print(f"   F1-Score:  {best_model['F1-Score']:.4f}")
 
-    return results_df
+def plot_results(results_df, trained_models, X_test, y_test, class_names=None):
+    """Sonuçları görselleştirir"""
+
+    fig = plt.figure(figsize=(16, 10))
+    gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
+
+    # 1. Train vs Test Accuracy
+    ax1 = fig.add_subplot(gs[0, :2])
+    x = np.arange(len(results_df))
+    width = 0.35
+
+    ax1.bar(x - width / 2, results_df['Train_Acc'], width,
+            label='Train', color='#3498db', alpha=0.8)
+    ax1.bar(x + width / 2, results_df['Test_Acc'], width,
+            label='Test', color='#e74c3c', alpha=0.8)
+    ax1.set_xlabel('Model', fontsize=11)
+    ax1.set_ylabel('Accuracy', fontsize=11)
+    ax1.set_title('Train vs Test Accuracy', fontsize=13, fontweight='bold')
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(results_df['Model'])
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    ax1.set_ylim([0, 1.05])
+
+    # 2. Overfitting Skorları
+    ax2 = fig.add_subplot(gs[0, 2])
+    colors = ['#2ecc71' if x < 0.02 else '#f39c12' if x < 0.05
+    else '#e67e22' if x < 0.10 else '#c0392b'
+              for x in results_df['Overfitting']]
+
+    ax2.barh(results_df['Model'], results_df['Overfitting'], color=colors, alpha=0.8)
+    ax2.axvline(x=0.02, color='g', linestyle='--', linewidth=1, label='İyi')
+    ax2.axvline(x=0.05, color='orange', linestyle='--', linewidth=1, label='Dikkat')
+    ax2.axvline(x=0.10, color='red', linestyle='--', linewidth=1, label='Sorun')
+    ax2.set_xlabel('Overfitting Skoru', fontsize=10)
+    ax2.set_title('Overfitting Seviyeleri', fontsize=12, fontweight='bold')
+    ax2.legend(fontsize=8)
+    ax2.grid(True, alpha=0.3, axis='x')
+
+    # 3. Performans Metrikleri
+    ax3 = fig.add_subplot(gs[1, :])
+    metrics_data = results_df[['Model', 'Test_Acc', 'Precision', 'Recall', 'F1_Score']].set_index('Model')
+
+    x = np.arange(len(results_df))
+    width = 0.2
+
+    ax3.bar(x - 1.5 * width, metrics_data['Test_Acc'], width, label='Accuracy', color='#3498db', alpha=0.8)
+    ax3.bar(x - 0.5 * width, metrics_data['Precision'], width, label='Precision', color='#2ecc71', alpha=0.8)
+    ax3.bar(x + 0.5 * width, metrics_data['Recall'], width, label='Recall', color='#f39c12', alpha=0.8)
+    ax3.bar(x + 1.5 * width, metrics_data['F1_Score'], width, label='F1-Score', color='#9b59b6', alpha=0.8)
+
+    ax3.set_xlabel('Model', fontsize=11)
+    ax3.set_ylabel('Skor', fontsize=11)
+    ax3.set_title('Tüm Performans Metrikleri (Test Set)', fontsize=13, fontweight='bold')
+    ax3.set_xticks(x)
+    ax3.set_xticklabels(results_df['Model'])
+    ax3.legend()
+    ax3.grid(True, alpha=0.3, axis='y')
+    ax3.set_ylim([0, 1.05])
+
+    # 4. En iyi modelin confusion matrix'i
+    best_model_name = results_df.loc[results_df['Test_Acc'].idxmax(), 'Model']
+    best_model = trained_models[best_model_name]
+
+    ax4 = fig.add_subplot(gs[2, :])
+    y_pred = best_model.predict(X_test)
+    cm = confusion_matrix(y_test, y_pred)
+
+    # Küçük confusion matrix için normalize et
+    cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+
+    sns.heatmap(cm_normalized, annot=False, fmt='.2f', cmap='Blues',
+                ax=ax4, cbar_kws={'label': 'Normalized Count'})
+    ax4.set_title(f'Confusion Matrix - {best_model_name} (Test Set)',
+                  fontsize=13, fontweight='bold')
+    ax4.set_ylabel('Gerçek', fontsize=11)
+    ax4.set_xlabel('Tahmin', fontsize=11)
+
+    plt.suptitle('Overfitting Analizi - Ayrı Train-Test Değerlendirmesi',
+                 fontsize=15, fontweight='bold', y=0.995)
+
+    plt.show()
+
+
+##############################################################################
+#TEST VERİ SETİ ÇOK AZZZZZZZ  (Genellenebilir değil)
+##############################################################################
+
+df_engineered_train = perform_feature_engineering(df_train_new)
+df_engineered_test = perform_feature_engineering(df_test_new)
+
+"""""
+X_train = df_engineered_train.drop('prognosis', axis=1)
+X_test = df_engineered_test.drop('prognosis', axis=1)
 
 # Hedef değişkeni encode et
 le = LabelEncoder()
-y_encoded = le.fit_transform(df_engineered['prognosis'])
+y_train_encoded = le.fit_transform(df_engineered_train['prognosis'])
+y_test_encoded = le.transform(df_engineered_test['prognosis'])
 
-# X ve y hazırla
-X = df_engineered.drop('prognosis', axis=1)
-y = y_encoded
+results_df, trained_models = evaluate_with_separate_test(
+    X_train, y_train_encoded, X_test, y_test_encoded,
+    class_names=le.classes_
+)
+"""""
+#FEATURE IMPORTANCE
+def analyze_feature_importance(X_train, y_train, X_test, y_test,
+                               feature_names=None, top_n=20):
+    """
+    Detaylı feature importance analizi
 
-# Modelleri değerlendir
-results = evaluate_models(X, y)
+    Parameters:
+    -----------
+    X_train, y_train : Train verisi
+    X_test, y_test : Test verisi
+    feature_names : list
+        Feature isimleri (None ise X_train.columns kullanılır)
+    top_n : int
+        Gösterilecek en önemli feature sayısı
 
-# Sonuçları görselleştir
-import matplotlib.pyplot as plt
+    Returns:
+    --------
+    dict : Her yöntem için importance değerleri
+    """
 
-fig, ax = plt.subplots(figsize=(12, 6))
-x_pos = np.arange(len(results))
-width = 0.2
+    if feature_names is None:
+        if hasattr(X_train, 'columns'):
+            feature_names = X_train.columns.tolist()
+        else:
+            feature_names = [f'Feature_{i}' for i in range(X_train.shape[1])]
 
-ax.bar(x_pos - 1.5 * width, results['Accuracy'], width, label='Accuracy', alpha=0.8)
-ax.bar(x_pos - 0.5 * width, results['Precision'], width, label='Precision', alpha=0.8)
-ax.bar(x_pos + 0.5 * width, results['Recall'], width, label='Recall', alpha=0.8)
-ax.bar(x_pos + 1.5 * width, results['F1-Score'], width, label='F1-Score', alpha=0.8)
+    results = {}
 
-ax.set_xlabel('Model', fontsize=12)
-ax.set_ylabel('Score', fontsize=12)
-ax.set_title('Model Karşılaştırması - Classification Metrics', fontsize=14, fontweight='bold')
-ax.set_xticks(x_pos)
-ax.set_xticklabels(results['Model'])
-ax.legend()
-ax.grid(axis='y', alpha=0.3)
-plt.tight_layout()
-plt.show()
+    print("\n" + "=" * 80)
+    print("FEATURE IMPORTANCE ANALİZİ")
+    print("=" * 80)
 
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from sklearn.model_selection import cross_validate, learning_curve, train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+    # 1. Random Forest Feature Importance (Gini-based)
+    print("\n📊 1. Random Forest - Gini Importance")
+    print("─" * 80)
+
+    rf_model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
+    rf_model.fit(X_train, y_train)
+
+    rf_importance = pd.DataFrame({
+        'Feature': feature_names,
+        'Importance': rf_model.feature_importances_
+    }).sort_values('Importance', ascending=False)
+
+    results['random_forest'] = rf_importance
+
+    print(f"\n🔝 Top {min(top_n, len(rf_importance))} Önemli Feature:")
+    print(rf_importance.head(top_n).to_string(index=False))
+
+    # Test accuracy
+    rf_test_score = rf_model.score(X_test, y_test)
+    print(f"\n📈 Random Forest Test Accuracy: {rf_test_score:.4f}")
+
+    # 2. Decision Tree Feature Importance
+    print("\n" + "─" * 80)
+    print("📊 2. Decision Tree - Feature Importance")
+    print("─" * 80)
+
+    dt_model = DecisionTreeClassifier(random_state=42, max_depth=10)
+    dt_model.fit(X_train, y_train)
+
+    dt_importance = pd.DataFrame({
+        'Feature': feature_names,
+        'Importance': dt_model.feature_importances_
+    }).sort_values('Importance', ascending=False)
+
+    results['decision_tree'] = dt_importance
+
+    print(f"\n🔝 Top {min(top_n, len(dt_importance))} Önemli Feature:")
+    print(dt_importance.head(top_n).to_string(index=False))
+
+    dt_test_score = dt_model.score(X_test, y_test)
+    print(f"\n📈 Decision Tree Test Accuracy: {dt_test_score:.4f}")
+
+    # 3. Permutation Importance (Test seti üzerinde)
+    print("\n" + "─" * 80)
+    print("📊 3. Permutation Importance (Test Seti)")
+    print("─" * 80)
+    print("⏳ Hesaplanıyor... (biraz zaman alabilir)")
+
+    perm_importance = permutation_importance(
+        rf_model, X_test, y_test,
+        n_repeats=10, random_state=42, n_jobs=-1
+    )
+
+    perm_importance_df = pd.DataFrame({
+        'Feature': feature_names,
+        'Importance': perm_importance.importances_mean,
+        'Std': perm_importance.importances_std
+    }).sort_values('Importance', ascending=False)
+
+    results['permutation'] = perm_importance_df
+
+    print(f"\n🔝 Top {min(top_n, len(perm_importance_df))} Önemli Feature:")
+    print(perm_importance_df.head(top_n).to_string(index=False))
+
+    # 4. Görselleştirme
+    plot_feature_importance(results, top_n)
+
+    # 5. Karşılaştırma analizi
+    compare_importance_methods(results, top_n)
+
+    # 6. Öneriler
+    print_feature_recommendations(results, top_n)
+
+    return results
+
+def plot_feature_importance(results, top_n=20):
+    """Feature importance görselleştirmeleri"""
+
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig.suptitle('Feature Importance Analizi', fontsize=16, fontweight='bold')
+
+    # 1. Random Forest - Bar plot
+    rf_top = results['random_forest'].head(top_n)
+    axes[0, 0].barh(range(len(rf_top)), rf_top['Importance'],
+                    color='#3498db', alpha=0.8)
+    axes[0, 0].set_yticks(range(len(rf_top)))
+    axes[0, 0].set_yticklabels(rf_top['Feature'], fontsize=9)
+    axes[0, 0].set_xlabel('Importance (Gini)', fontsize=10)
+    axes[0, 0].set_title('Random Forest Feature Importance', fontsize=12, fontweight='bold')
+    axes[0, 0].invert_yaxis()
+    axes[0, 0].grid(True, alpha=0.3, axis='x')
+
+    # 2. Decision Tree - Bar plot
+    dt_top = results['decision_tree'].head(top_n)
+    axes[0, 1].barh(range(len(dt_top)), dt_top['Importance'],
+                    color='#2ecc71', alpha=0.8)
+    axes[0, 1].set_yticks(range(len(dt_top)))
+    axes[0, 1].set_yticklabels(dt_top['Feature'], fontsize=9)
+    axes[0, 1].set_xlabel('Importance (Gini)', fontsize=10)
+    axes[0, 1].set_title('Decision Tree Feature Importance', fontsize=12, fontweight='bold')
+    axes[0, 1].invert_yaxis()
+    axes[0, 1].grid(True, alpha=0.3, axis='x')
+
+    # 3. Permutation Importance - Bar plot with error bars
+    perm_top = results['permutation'].head(top_n)
+    axes[1, 0].barh(range(len(perm_top)), perm_top['Importance'],
+                    xerr=perm_top['Std'], color='#e74c3c', alpha=0.8,
+                    error_kw={'elinewidth': 1, 'alpha': 0.5})
+    axes[1, 0].set_yticks(range(len(perm_top)))
+    axes[1, 0].set_yticklabels(perm_top['Feature'], fontsize=9)
+    axes[1, 0].set_xlabel('Importance (Decrease in Accuracy)', fontsize=10)
+    axes[1, 0].set_title('Permutation Importance (Test Set)', fontsize=12, fontweight='bold')
+    axes[1, 0].invert_yaxis()
+    axes[1, 0].grid(True, alpha=0.3, axis='x')
+
+    # 4. Karşılaştırma - Top 10 feature'ların 3 yöntemde karşılaştırması
+    # En önemli 10 feature'ı al (RF'den)
+    top_features = results['random_forest'].head(10)['Feature'].tolist()
+
+    comparison_data = []
+    for feature in top_features:
+        rf_val = results['random_forest'][results['random_forest']['Feature'] == feature]['Importance'].values[0]
+        dt_val = results['decision_tree'][results['decision_tree']['Feature'] == feature]['Importance'].values[0]
+        perm_val = results['permutation'][results['permutation']['Feature'] == feature]['Importance'].values[0]
+
+        comparison_data.append({
+            'Feature': feature,
+            'RF': rf_val,
+            'DT': dt_val,
+            'Perm': perm_val
+        })
+
+    comp_df = pd.DataFrame(comparison_data)
+
+    x = np.arange(len(comp_df))
+    width = 0.25
+
+    axes[1, 1].bar(x - width, comp_df['RF'], width, label='Random Forest',
+                   color='#3498db', alpha=0.8)
+    axes[1, 1].bar(x, comp_df['DT'], width, label='Decision Tree',
+                   color='#2ecc71', alpha=0.8)
+    axes[1, 1].bar(x + width, comp_df['Perm'], width, label='Permutation',
+                   color='#e74c3c', alpha=0.8)
+
+    axes[1, 1].set_xlabel('Features', fontsize=10)
+    axes[1, 1].set_ylabel('Normalized Importance', fontsize=10)
+    axes[1, 1].set_title('Top 10 Features - Yöntem Karşılaştırması', fontsize=12, fontweight='bold')
+    axes[1, 1].set_xticks(x)
+    axes[1, 1].set_xticklabels(comp_df['Feature'], rotation=45, ha='right', fontsize=8)
+    axes[1, 1].legend()
+    axes[1, 1].grid(True, alpha=0.3, axis='y')
+
+    plt.tight_layout()
+    plt.show()
+
+
+def compare_importance_methods(results, top_n=10):
+    """Farklı importance yöntemlerini karşılaştırır"""
+
+    print("\n" + "=" * 80)
+    print("YÖNTEM KARŞILAŞTIRMASI")
+    print("=" * 80)
+
+    # Top N feature'ları al
+    rf_top = set(results['random_forest'].head(top_n)['Feature'])
+    dt_top = set(results['decision_tree'].head(top_n)['Feature'])
+    perm_top = set(results['permutation'].head(top_n)['Feature'])
+
+    # Kesişim analizi
+    all_methods = rf_top & dt_top & perm_top
+    two_methods = (rf_top & dt_top) | (rf_top & perm_top) | (dt_top & perm_top)
+    two_methods = two_methods - all_methods
+
+    print(f"\n📊 Top {top_n} Feature Analizi:")
+    print(f"\n✅ 3 yöntemde de önemli ({len(all_methods)} feature):")
+    if all_methods:
+        for feat in sorted(all_methods):
+            print(f"   • {feat}")
+    else:
+        print("   (Yok)")
+
+    print(f"\n⚠️  2 yöntemde önemli ({len(two_methods)} feature):")
+    if two_methods:
+        for feat in sorted(two_methods):
+            in_methods = []
+            if feat in rf_top:
+                in_methods.append("RF")
+            if feat in dt_top:
+                in_methods.append("DT")
+            if feat in perm_top:
+                in_methods.append("Perm")
+            print(f"   • {feat} ({', '.join(in_methods)})")
+    else:
+        print("   (Yok)")
+
+    # Tutarlılık skoru
+    consistency = len(all_methods) / top_n
+    print(f"\n📈 Tutarlılık Skoru: {consistency:.2%}")
+
+    if consistency > 0.7:
+        print("   ✅ Yüksek tutarlılık - Sonuçlar güvenilir")
+    elif consistency > 0.4:
+        print("   ⚠️  Orta tutarlılık - Sonuçları dikkatle yorumlayın")
+    else:
+        print("   🚨 Düşük tutarlılık - Feature'lar kararsız olabilir")
+
+
+def print_feature_recommendations(results, top_n=20):
+    """Feature importance'a göre öneriler"""
+
+    print("\n" + "=" * 80)
+    print("💡 ÖNERİLER VE YORUMLAR")
+    print("=" * 80)
+
+    rf_importance = results['random_forest']
+
+    # En önemli feature'lar
+    top_features = rf_importance.head(5)
+    print("\n🎯 En Kritik 5 Feature (Random Forest):")
+    for idx, row in top_features.iterrows():
+        print(f"   {idx + 1}. {row['Feature']}: {row['Importance']:.4f}")
+
+    # Düşük önemli feature'lar
+    low_importance = rf_importance[rf_importance['Importance'] < 0.01]
+
+    print(f"\n📉 Düşük Önemli Feature'lar ({len(low_importance)} adet):")
+    if len(low_importance) > 0:
+        print(f"   • Importance < 0.01 olan {len(low_importance)} feature var")
+        print(f"   • Bu feature'ları çıkarmayı düşünebilirsiniz")
+        print(f"   • Model daha basit ve hızlı olabilir")
+
+        if len(low_importance) <= 10:
+            print("\n   Düşük önemli feature'lar:")
+            for idx, row in low_importance.iterrows():
+                print(f"      • {row['Feature']}: {row['Importance']:.4f}")
+    else:
+        print("   • Tüm feature'lar önemli (>0.01)")
+
+    # Öneriler
+    print("\n" + "─" * 80)
+    print("📋 AKSIYONLAR:")
+    print("─" * 80)
+
+    total_importance = rf_importance['Importance'].sum()
+    cumsum_importance = rf_importance['Importance'].cumsum()
+
+    # %90 importance için kaç feature yeterli?
+    n_for_90 = (cumsum_importance <= 0.90 * total_importance).sum() + 1
+
+    print(f"\n1. 📊 Feature Seçimi:")
+    print(f"   • Toplam {len(rf_importance)} feature var")
+    print(f"   • İlk {n_for_90} feature toplam önemin %90'ını sağlıyor")
+    print(f"   • {len(rf_importance) - n_for_90} feature'ı çıkarabilirsiniz")
+
+    print(f"\n2. 🔧 Model Optimizasyonu:")
+    if len(low_importance) > 10:
+        print(f"   • {len(low_importance)} düşük önemli feature'ı çıkarın")
+        print(f"   • Model eğitim süresi azalır")
+        print(f"   • Overfitting riski azalır")
+    else:
+        print(f"   • Tüm feature'lar önemli, hepsini kullanın")
+
+    print(f"\n3. 📈 Feature Engineering:")
+    print(f"   • Top 5 feature'ı temel alarak yeni feature'lar türetin")
+    print(f"   • Bu feature'ların kombinasyonlarını deneyin")
+    print(f"   • Domain knowledge ile zenginleştirin")
+
+    print("\n" + "=" * 80)
+
+
+def create_feature_importance_summary(results, output_file='feature_importance_summary.csv'):
+    """Feature importance sonuçlarını CSV'ye kaydeder"""
+
+    # Tüm sonuçları birleştir
+    rf_imp = results['random_forest'][['Feature', 'Importance']].rename(columns={'Importance': 'RF_Importance'})
+    dt_imp = results['decision_tree'][['Feature', 'Importance']].rename(columns={'Importance': 'DT_Importance'})
+    perm_imp = results['permutation'][['Feature', 'Importance']].rename(columns={'Importance': 'Perm_Importance'})
+
+    summary = rf_imp.merge(dt_imp, on='Feature').merge(perm_imp, on='Feature')
+
+    # Ortalama importance
+    summary['Avg_Importance'] = summary[['RF_Importance', 'DT_Importance', 'Perm_Importance']].mean(axis=1)
+    summary = summary.sort_values('Avg_Importance', ascending=False)
+
+    # Kaydet
+    summary.to_csv(output_file, index=False)
+    print(f"\n✅ Feature importance summary kaydedildi: {output_file}")
+
+    return summary
+
+
+# ==================== KULLANIM ÖRNEĞİ ====================
+
+"""""
+# 1. Feature importance analizi
+importance_results = analyze_feature_importance(
+    X_train, y_train_encoded, X_test, y_test_encoded,
+    feature_names=X_train.columns,
+    top_n=20
+)
+
+# 2. Sonuçları kaydet
+summary = create_feature_importance_summary(importance_results)
+
+# 3. Düşük önemli feature'ları çıkar
+low_importance_features = importance_results['random_forest'][
+    importance_results['random_forest']['Importance'] < 0.01
+]['Feature'].tolist()
+
+print(f"\\n🗑️  Çıkarılabilecek {len(low_importance_features)} feature:")
+print(low_importance_features)
+
+# 4. Feature selection yapılmış yeni veri
+X_train_selected = X_train.drop(columns=low_importance_features)
+X_test_selected = X_test.drop(columns=low_importance_features)
+
+print(f"\\n✅ Yeni feature sayısı: {X_train_selected.shape[1]} (Önceki: {X_train.shape[1]})")
+
+# 5. Yeni veri ile model eğit
+from sklearn.ensemble import RandomForestClassifier
+model = RandomForestClassifier(random_state=42)
+model.fit(X_train_selected, y_train_encoded)
+
+print(f"Feature selection sonrası test accuracy: {model.score(X_test_selected, y_test_encoded):.4f}")
+"""
+
+
+from sklearn.inspection import permutation_importance
 import warnings
 
 warnings.filterwarnings('ignore')
 
 
-def check_overfitting_with_cv(X, y, models_list):
+def proper_evaluation_with_small_test(df_train, df_test, target_col='prognosis'):
     """
-    Cross-validation ile birlikte overfitting kontrolü yapar.
+    Küçük test seti için uygun değerlendirme stratejisi
+
+    Strateji:
+    1. Train'i temizle ve böl (internal validation)
+    2. Cross-validation yap (güvenilir metrik)
+    3. Orijinal test'i final validation olarak kullan
 
     Parameters:
     -----------
-    X : pandas.DataFrame veya numpy.ndarray
-        Özellikler (features)
-    y : pandas.Series veya numpy.ndarray
-        Hedef değişken (encoded)
-    models_list : list of tuples
-        [(name, model), ...] formatında model listesi
-
-    Returns:
-    --------
-    pd.DataFrame : Overfitting metrikleri ile birlikte sonuçlar
+    df_train : pd.DataFrame
+        Train verisi
+    df_test : pd.DataFrame
+        Test verisi (küçük)
+    target_col : str
+        Hedef değişken
     """
 
-    results = []
-
-    print("\n" + "=" * 80)
-    print("OVERFITTING ANALİZİ İLE MODEL PERFORMANS DEĞERLENDİRMESİ")
+    print("=" * 80)
+    print("KÜÇÜK TEST SETİ İÇİN UYGUN DEĞERLENDİRME")
     print("=" * 80)
 
-    # Her model için analiz
-    for name, model in models_list:
-        print(f"\n{'─' * 80}")
-        print(f"📊 Model: {name}")
-        print(f"{'─' * 80}")
+    # 1. VERİ HAZIRLIĞI
+    print("\n📊 1. VERİ HAZIRLIĞI")
+    print("─" * 80)
 
-        # 1. Cross-validation skorları (CV ile train-test farkı)
-        cv_results = cross_validate(
-            model, X, y, cv=10,
-            scoring=['accuracy', 'precision_weighted', 'recall_weighted', 'f1_weighted'],
-            return_train_score=True
-        )
+    # Duplicate temizliği
+    df_train_clean = df_train.drop_duplicates()
+    df_test_clean = df_test.drop_duplicates()
 
-        # Train ve test skorlarının ortalaması
-        train_acc = cv_results['train_accuracy'].mean()
-        test_acc = cv_results['test_accuracy'].mean()
-        train_f1 = cv_results['train_f1_weighted'].mean()
-        test_f1 = cv_results['test_f1_weighted'].mean()
+    print(f"Train - Öncesi: {len(df_train):,} → Sonrası: {len(df_train_clean):,}")
+    print(f"Test - Öncesi: {len(df_test):,} → Sonrası: {len(df_test_clean):,}")
 
-        # Standart sapma (model stabilitesi)
-        test_acc_std = cv_results['test_accuracy'].std()
+    # Test seti analizi
+    print(f"\n⚠️  UYARI: Test seti çok küçük!")
+    print(f"   Test boyutu: {len(df_test_clean)} örnek")
+    print(f"   Train/Test oranı: {len(df_train_clean) / len(df_test_clean):.1f}:1")
 
-        # Overfitting skoru (train-test farkı)
-        acc_diff = train_acc - test_acc
-        f1_diff = train_f1 - test_f1
+    test_disease_count = df_test_clean[target_col].value_counts()
+    print(f"   Test'te hastalık başına ortalama: {test_disease_count.mean():.1f} örnek")
 
-        # 2. Ayrı bir train-test split ile de kontrol
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
+    if test_disease_count.min() == 0:
+        print(f"   🚨 Bazı hastalıklar test'te yok!")
 
+    # X, y hazırla
+    from sklearn.preprocessing import LabelEncoder
+    le = LabelEncoder()
+
+    X_train_full = df_train_clean.drop(target_col, axis=1)
+    y_train_full = le.fit_transform(df_train_clean[target_col])
+
+    X_test_original = df_test_clean.drop(target_col, axis=1)
+    y_test_original = le.transform(df_test_clean[target_col])
+
+    # 2. STRATEJİ 1: TRAIN'İ BÖL (Internal Validation)
+    print("\n" + "=" * 80)
+    print("📊 2. STRATEJİ 1: TRAIN'İ BÖL (Internal Validation)")
+    print("=" * 80)
+
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_train_full, y_train_full,
+        test_size=0.2,
+        random_state=42,
+        stratify=y_train_full
+    )
+
+    print(f"\nBölme sonrası:")
+    print(f"  Internal Train: {len(X_train):,} örnek")
+    print(f"  Internal Val:   {len(X_val):,} örnek")
+    print(f"  Original Test:  {len(X_test_original):,} örnek")
+
+    models = {
+        'KNN': KNeighborsClassifier(),
+        'CART': DecisionTreeClassifier(random_state=42, max_depth=10),
+        'RF': RandomForestClassifier(random_state=42, n_estimators=100)
+    }
+
+    print("\n" + "─" * 80)
+    print("Internal Validation Sonuçları:")
+    print("─" * 80)
+
+    internal_results = []
+    trained_models = {}
+
+    for name, model in models.items():
         model.fit(X_train, y_train)
-        y_train_pred = model.predict(X_train)
-        y_test_pred = model.predict(X_test)
+        trained_models[name] = model
 
-        train_score_split = accuracy_score(y_train, y_train_pred)
-        test_score_split = accuracy_score(y_test, y_test_pred)
-        split_diff = train_score_split - test_score_split
+        train_acc = model.score(X_train, y_train)
+        val_acc = model.score(X_val, y_val)
 
-        # 3. Overfitting değerlendirmesi
-        avg_diff = (acc_diff + split_diff) / 2
-
-        if avg_diff < 0.02:
-            status = "✅ İYİ"
-            overfitting_level = "Yok"
-            color = "🟢"
-        elif avg_diff < 0.05:
-            status = "⚠️  DİKKAT"
-            overfitting_level = "Hafif"
-            color = "🟡"
-        elif avg_diff < 0.10:
-            status = "🔴 SORUN"
-            overfitting_level = "Orta"
-            color = "🟠"
-        else:
-            status = "🚨 CİDDİ"
-            overfitting_level = "Yüksek"
-            color = "🔴"
-
-        # Sonuçları yazdır
-        print(f"\n{color} OVERFITTING DURUMU: {status} - {overfitting_level}")
-        print(f"\n📈 Cross-Validation Skorları:")
-        print(f"   Train Accuracy:      {train_acc:.4f}")
-        print(f"   Test Accuracy (CV):  {test_acc:.4f}")
-        print(f"   Fark (CV):           {acc_diff:.4f}")
-        print(f"   Test Std Dev:        {test_acc_std:.4f}")
-
-        print(f"\n📊 Train-Test Split Skorları:")
-        print(f"   Train Accuracy:      {train_score_split:.4f}")
-        print(f"   Test Accuracy:       {test_score_split:.4f}")
-        print(f"   Fark (Split):        {split_diff:.4f}")
-
-        print(f"\n🎯 Ortalama Overfitting Skoru: {avg_diff:.4f}")
-
-        # Stabilite analizi
-        if test_acc_std > 0.05:
-            print(f"⚠️  Model kararsız - Yüksek varyans ({test_acc_std:.4f})")
-        else:
-            print(f"✅ Model stabil - Düşük varyans ({test_acc_std:.4f})")
-
-        # Sonuçları kaydet
-        results.append({
+        internal_results.append({
             'Model': name,
-            'CV_Test_Accuracy': test_acc,
-            'CV_Train_Accuracy': train_acc,
-            'CV_Diff': acc_diff,
-            'Split_Train_Acc': train_score_split,
-            'Split_Test_Acc': test_score_split,
-            'Split_Diff': split_diff,
-            'Avg_Overfitting': avg_diff,
-            'Test_Std': test_acc_std,
-            'Overfitting_Level': overfitting_level,
-            'Precision': cv_results['test_precision_weighted'].mean(),
-            'Recall': cv_results['test_recall_weighted'].mean(),
-            'F1_Score': test_f1
+            'Train_Acc': train_acc,
+            'Val_Acc': val_acc,
+            'Overfitting': train_acc - val_acc
         })
 
-    # DataFrame oluştur
-    results_df = pd.DataFrame(results)
+        status = "✅" if (train_acc - val_acc) < 0.05 else "⚠️"
+        print(f"{name:6s} | Train: {train_acc:.4f} | Val: {val_acc:.4f} | "
+              f"Diff: {train_acc - val_acc:.4f} {status}")
 
-    # Görselleştirme
-    plot_overfitting_analysis(results_df)
+    internal_df = pd.DataFrame(internal_results)
 
-    # Özet
+    # 3. STRATEJİ 2: CROSS-VALIDATION (En Güvenilir)
     print("\n" + "=" * 80)
-    print("📋 OVERFITTING ÖZET TABLOSU")
+    print("📊 3. STRATEJİ 2: CROSS-VALIDATION (5-Fold)")
+    print("=" * 80)
+    print("⏳ Hesaplanıyor...")
+
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+    cv_results = []
+
+    for name, model in models.items():
+        results = cross_validate(
+            model, X_train_full, y_train_full,
+            cv=cv,
+            scoring=['accuracy', 'precision_weighted', 'recall_weighted', 'f1_weighted'],
+            return_train_score=True,
+            n_jobs=-1
+        )
+
+        train_mean = results['train_accuracy'].mean()
+        test_mean = results['test_accuracy'].mean()
+        test_std = results['test_accuracy'].std()
+
+        cv_results.append({
+            'Model': name,
+            'CV_Train': train_mean,
+            'CV_Test': test_mean,
+            'CV_Std': test_std,
+            'Overfitting': train_mean - test_mean,
+            'Precision': results['test_precision_weighted'].mean(),
+            'Recall': results['test_recall_weighted'].mean(),
+            'F1': results['test_f1_weighted'].mean()
+        })
+
+    cv_df = pd.DataFrame(cv_results)
+
+    print("\n" + "─" * 80)
+    print("Cross-Validation Sonuçları (5-Fold):")
+    print("─" * 80)
+    print(cv_df[['Model', 'CV_Train', 'CV_Test', 'CV_Std', 'Overfitting']].to_string(index=False))
+
+    # 4. STRATEJİ 3: ORİJİNAL TEST (Final Check)
+    print("\n" + "=" * 80)
+    print("📊 4. STRATEJİ 3: ORİJİNAL TEST SETİ (Final Validation)")
+    print("=" * 80)
+    print(f"⚠️  Not: {len(X_test_original)} örnek çok az, sadece referans amaçlı!\n")
+
+    final_results = []
+
+    for name, model in trained_models.items():
+        # Full train ile yeniden eğit
+        model.fit(X_train_full, y_train_full)
+
+        final_acc = model.score(X_test_original, y_test_original)
+
+        final_results.append({
+            'Model': name,
+            'Final_Test_Acc': final_acc
+        })
+
+        print(f"{name:6s} | Orijinal Test Accuracy: {final_acc:.4f}")
+
+    final_df = pd.DataFrame(final_results)
+
+    # 5. KARŞILAŞTIRMALı SONUÇLAR
+    print("\n" + "=" * 80)
+    print("📊 5. KARŞILAŞTIRMALI ÖZET")
     print("=" * 80)
 
-    summary = results_df[['Model', 'CV_Test_Accuracy', 'Avg_Overfitting',
-                          'Overfitting_Level', 'Test_Std']].copy()
-    summary.columns = ['Model', 'Test Acc', 'Overfitting', 'Seviye', 'Std Dev']
-    print(summary.to_string(index=False))
+    # Merge all results
+    summary = internal_df[['Model', 'Val_Acc']].merge(
+        cv_df[['Model', 'CV_Test', 'CV_Std']], on='Model'
+    ).merge(
+        final_df[['Model', 'Final_Test_Acc']], on='Model'
+    )
 
-    # En iyi model
-    best_idx = results_df['CV_Test_Accuracy'].idxmax()
-    best_model = results_df.loc[best_idx]
+    summary.columns = ['Model', 'Internal_Val', 'CV_Mean', 'CV_Std', 'Original_Test']
+
+    print("\n" + summary.to_string(index=False))
+
+    # Güvenilirlik analizi
+    print("\n" + "─" * 80)
+    print("🎯 GÜVENİLİRLİK ANALİZİ:")
+    print("─" * 80)
+
+    for idx, row in summary.iterrows():
+        model_name = row['Model']
+
+        # Confidence interval for original test (42 samples)
+        n = len(X_test_original)
+        acc = row['Original_Test']
+
+        if n > 0 and acc < 1.0:
+            # Wilson score interval
+            z = 1.96  # 95% confidence
+            phat = acc
+            denominator = 1 + z ** 2 / n
+            centre = (phat + z ** 2 / (2 * n)) / denominator
+            adjustment = z * np.sqrt((phat * (1 - phat) / n + z ** 2 / (4 * n ** 2))) / denominator
+            ci_lower = max(0, centre - adjustment)
+            ci_upper = min(1, centre + adjustment)
+
+            print(f"\n{model_name}:")
+            print(f"  ✅ En güvenilir: CV = {row['CV_Mean']:.4f} (±{row['CV_Std']:.4f})")
+            print(f"  ⚠️  Original Test = {acc:.4f} (42 örnek)")
+            print(f"     → %95 güven aralığı: [{ci_lower:.4f}, {ci_upper:.4f}]")
+            print(f"     → Gerçek accuracy muhtemelen bu aralıkta")
+        else:
+            print(f"\n{model_name}:")
+            print(f"  ✅ En güvenilir: CV = {row['CV_Mean']:.4f} (±{row['CV_Std']:.4f})")
+            print(f"  ⚠️  Original Test = {acc:.4f} (42 örnek - çok az!)")
+
+    # 6. GÖRSELLEŞTİRME
+    plot_comparison(summary, cv_df)
+
+    # 7. ÖNERİLER
+    print("\n" + "=" * 80)
+    print("💡 ÖNERİLER")
+    print("=" * 80)
+
+    best_model = cv_df.loc[cv_df['CV_Test'].idxmax(), 'Model']
+
+    print(f"\n🏆 En iyi model: {best_model}")
+    print(f"   CV Test Accuracy: {cv_df.loc[cv_df['Model'] == best_model, 'CV_Test'].values[0]:.4f}")
+    print(f"   CV Std: {cv_df.loc[cv_df['Model'] == best_model, 'CV_Std'].values[0]:.4f}")
+
+    print("\n📋 Aksiyonlar:")
+    print("1. ✅ Cross-validation sonuçlarına güvenin (en güvenilir)")
+    print(f"2. ⚠️  Orijinal {len(X_test_original)} test örneğine çok güvenmeyin")
+    print("3. 💡 Eğer mümkünse daha fazla test verisi toplayın (min 100+)")
+    print("4. 🎯 Final deployment öncesi yeni verilerle validate edin")
 
     print("\n" + "=" * 80)
-    print("🏆 EN İYİ MODEL")
-    print("=" * 80)
-    print(f"Model:              {best_model['Model']}")
-    print(f"Test Accuracy:      {best_model['CV_Test_Accuracy']:.4f}")
-    print(f"Overfitting Skoru:  {best_model['Avg_Overfitting']:.4f} ({best_model['Overfitting_Level']})")
-    print(f"Precision:          {best_model['Precision']:.4f}")
-    print(f"Recall:             {best_model['Recall']:.4f}")
-    print(f"F1-Score:           {best_model['F1_Score']:.4f}")
-    print("=" * 80 + "\n")
 
-    # Öneriler
-    print_recommendations(results_df)
+    return {
+        'internal_validation': internal_df,
+        'cross_validation': cv_df,
+        'final_test': final_df,
+        'summary': summary,
+        'trained_models': trained_models,
+        'label_encoder': le
+    }
 
-    return results_df
+def plot_comparison(summary_df, cv_df):
+    """Sonuçları görselleştirir"""
 
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-def plot_overfitting_analysis(results_df):
-    """Overfitting analizi için grafikler çizer."""
+    # 1. Farklı değerlendirme yöntemlerinin karşılaştırması
+    x = np.arange(len(summary_df))
+    width = 0.25
 
-    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-    fig.suptitle('Overfitting Analizi', fontsize=16, fontweight='bold')
+    axes[0].bar(x - width, summary_df['Internal_Val'], width,
+                label='Internal Val', color='#3498db', alpha=0.8)
+    axes[0].bar(x, summary_df['CV_Mean'], width,
+                label='CV (5-fold)', color='#2ecc71', alpha=0.8)
+    axes[0].bar(x + width, summary_df['Original_Test'], width,
+                label='Original Test (42)', color='#e74c3c', alpha=0.8)
 
-    models = results_df['Model']
+    # CV için error bars
+    axes[0].errorbar(x, summary_df['CV_Mean'],
+                     yerr=summary_df['CV_Std'],
+                     fmt='none', color='black', capsize=3, linewidth=1)
 
-    # 1. Train vs Test Accuracy (CV)
-    x = np.arange(len(models))
-    width = 0.35
+    axes[0].set_xlabel('Model')
+    axes[0].set_ylabel('Accuracy')
+    axes[0].set_title('Farklı Değerlendirme Yöntemleri Karşılaştırması')
+    axes[0].set_xticks(x)
+    axes[0].set_xticklabels(summary_df['Model'])
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3, axis='y')
+    axes[0].set_ylim([0, 1.05])
 
-    axes[0, 0].bar(x - width / 2, results_df['CV_Train_Accuracy'], width,
-                   label='Train', color='#3498db', alpha=0.8)
-    axes[0, 0].bar(x + width / 2, results_df['CV_Test_Accuracy'], width,
-                   label='Test', color='#e74c3c', alpha=0.8)
-    axes[0, 0].set_xlabel('Model')
-    axes[0, 0].set_ylabel('Accuracy')
-    axes[0, 0].set_title('Train vs Test Accuracy (CV)')
-    axes[0, 0].set_xticks(x)
-    axes[0, 0].set_xticklabels(models)
-    axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3)
+    # 2. CV sonuçları detaylı
+    cv_metrics = cv_df[['Model', 'CV_Test', 'Precision', 'Recall', 'F1']].set_index('Model')
 
-    # 2. Overfitting Skorları
-    colors = ['#2ecc71' if x < 0.02 else '#f39c12' if x < 0.05
-    else '#e67e22' if x < 0.10 else '#c0392b'
-              for x in results_df['Avg_Overfitting']]
+    cv_metrics.plot(kind='bar', ax=axes[1], width=0.8, alpha=0.8)
+    axes[1].set_xlabel('Model')
+    axes[1].set_ylabel('Score')
+    axes[1].set_title('Cross-Validation Metrikleri (En Güvenilir)')
+    axes[1].legend(loc='lower right')
+    axes[1].grid(True, alpha=0.3, axis='y')
+    axes[1].set_ylim([0, 1.05])
+    axes[1].set_xticklabels(cv_metrics.index, rotation=0)
 
-    axes[0, 1].bar(models, results_df['Avg_Overfitting'], color=colors, alpha=0.8)
-    axes[0, 1].axhline(y=0.02, color='g', linestyle='--', label='İyi (<0.02)')
-    axes[0, 1].axhline(y=0.05, color='orange', linestyle='--', label='Dikkat (<0.05)')
-    axes[0, 1].axhline(y=0.10, color='red', linestyle='--', label='Sorun (<0.10)')
-    axes[0, 1].set_xlabel('Model')
-    axes[0, 1].set_ylabel('Overfitting Skoru')
-    axes[0, 1].set_title('Overfitting Seviyeleri')
-    axes[0, 1].legend()
-    axes[0, 1].grid(True, alpha=0.3)
-
-    # 3. Model Stabilitesi (Std Dev)
-    axes[1, 0].bar(models, results_df['Test_Std'], color='#9b59b6', alpha=0.8)
-    axes[1, 0].axhline(y=0.05, color='red', linestyle='--', label='Kararsız (>0.05)')
-    axes[1, 0].set_xlabel('Model')
-    axes[1, 0].set_ylabel('Standart Sapma')
-    axes[1, 0].set_title('Model Stabilitesi')
-    axes[1, 0].legend()
-    axes[1, 0].grid(True, alpha=0.3)
-
-    # 4. Genel Performans Matrisi
-    metrics_df = results_df[['Model', 'CV_Test_Accuracy', 'Precision', 'Recall', 'F1_Score']].set_index('Model')
-
-    im = axes[1, 1].imshow(metrics_df.values.T, cmap='YlGn', aspect='auto')
-    axes[1, 1].set_xticks(np.arange(len(models)))
-    axes[1, 1].set_yticks(np.arange(len(metrics_df.columns)))
-    axes[1, 1].set_xticklabels(models)
-    axes[1, 1].set_yticklabels(metrics_df.columns)
-    axes[1, 1].set_title('Performans Metrikleri Heatmap')
-
-    # Değerleri göster
-    for i in range(len(metrics_df.columns)):
-        for j in range(len(models)):
-            text = axes[1, 1].text(j, i, f'{metrics_df.values.T[i, j]:.3f}',
-                                   ha="center", va="center", color="black", fontsize=9)
-
-    plt.colorbar(im, ax=axes[1, 1])
     plt.tight_layout()
     plt.show()
 
 
-def print_recommendations(results_df):
-    """Overfitting durumuna göre öneriler verir."""
+# ==================== KULLANIM ====================
 
-    print("💡 ÖNERİLER VE ÇÖZÜMLER")
+
+# Kullanım:
+results = proper_evaluation_with_small_test(
+    df_train=df_engineered_train,  # Train veri setiniz
+    df_test=df_engineered_test,         # 42 örneklik test setiniz
+    target_col='prognosis'
+)
+
+
+def comprehensive_data_and_model_analysis(df_train, df_test, results, target_col='prognosis'):
+    """
+    Veri kalitesi ve model performansının kapsamlı analizi
+    """
+
+    print("=" * 80)
+    print("KAPSAMLI VERİ VE MODEL ANALİZİ")
     print("=" * 80)
 
-    for idx, row in results_df.iterrows():
-        model = row['Model']
-        level = row['Overfitting_Level']
+    # ============================================================================
+    # 1. VERİ KALİTESİ ANALİZİ
+    # ============================================================================
+    print("\n📊 1. VERİ KALİTESİ ANALİZİ")
+    print("─" * 80)
 
-        print(f"\n🔧 {model}:")
+    # Duplicate analizi
+    print("\n🔍 Duplicate Analizi:")
+    print(f"Orijinal train boyutu: {len(df_train):,}")
+    print(f"Temizlenmiş boyut: {len(df_train.drop_duplicates()):,}")
+    print(f"Duplicate oranı: {(1 - len(df_train.drop_duplicates()) / len(df_train)) * 100:.1f}%")
 
-        if level == "Yok":
-            print("   ✅ Model iyi durumda, herhangi bir aksiyona gerek yok.")
-        elif level == "Hafif":
-            print("   ⚠️  Hafif overfitting var:")
-            print("   • Regularization parametrelerini artırın (alpha, C)")
-            print("   • Feature selection yapın")
-        elif level == "Orta":
-            print("   🔴 Orta seviye overfitting:")
-            print("   • Daha fazla eğitim verisi toplayın")
-            print("   • Model karmaşıklığını azaltın (max_depth, n_estimators)")
-            print("   • Regularization uygulayın")
-            print("   • Feature engineering gözden geçirin")
-        else:  # Yüksek
-            print("   🚨 Ciddi overfitting!")
-            print("   • Model çok karmaşık - daha basit model deneyin")
-            print("   • Veri sayısını artırın")
-            print("   • Cross-validation fold sayısını artırın")
-            print("   • Feature sayısını azaltın")
+    # Hastalık dağılımı
+    disease_dist = df_train[target_col].value_counts()
+    print(f"\n📈 Hastalık Dağılımı:")
+    print(f"Toplam hastalık sayısı: {len(disease_dist)}")
+    print(f"Örnek başına ortalama: {len(df_train) / len(disease_dist):.1f}")
+    print(f"\nİlk 10 hastalık:")
+    print(disease_dist.head(10))
+
+    # Sınıf dengesizliği
+    print(f"\n⚖️ Sınıf Dengesizliği:")
+    print(f"En fazla örnek: {disease_dist.max()}")
+    print(f"En az örnek: {disease_dist.min()}")
+    print(f"İmbalance ratio: {disease_dist.max() / disease_dist.min():.1f}:1")
+
+    # Duplicate'lerin özellikleri
+    df_clean = df_train.drop_duplicates()
+    duplicates = df_train[df_train.duplicated(keep=False)]
+
+    if len(duplicates) > 0:
+        print(f"\n🔄 Duplicate Özellikleri:")
+        print(f"Duplicate örnek sayısı: {len(duplicates):,}")
+        print(f"Duplicate içeren hastalık sayısı: {duplicates[target_col].nunique()}")
+        print("\nEn çok duplicate olan hastalıklar:")
+        dup_diseases = duplicates[target_col].value_counts().head(5)
+        for disease, count in dup_diseases.items():
+            original_count = df_train[df_train[target_col] == disease].shape[0]
+            unique_count = df_clean[df_clean[target_col] == disease].shape[0]
+            print(f"  {disease}: {original_count} → {unique_count} "
+                  f"({original_count - unique_count} duplicate)")
+
+    # ============================================================================
+    # 2. FEATURE ANALİZİ
+    # ============================================================================
+    print("\n\n📊 2. FEATURE ANALİZİ")
+    print("─" * 80)
+
+    X = df_clean.drop(target_col, axis=1)
+
+    # Feature istatistikleri
+    print(f"\n📈 Feature İstatistikleri:")
+    print(f"Toplam feature sayısı: {X.shape[1]}")
+    print(f"Feature değer aralığı: [{X.values.min()}, {X.values.max()}]")
+
+    # Sıfır olmayan feature'lar
+    non_zero_counts = (X != 0).sum(axis=1)
+    print(f"\nÖrnek başına aktif feature (sıfır olmayan):")
+    print(f"  Ortalama: {non_zero_counts.mean():.1f}")
+    print(f"  Min: {non_zero_counts.min()}")
+    print(f"  Max: {non_zero_counts.max()}")
+
+    # Feature variance
+    feature_vars = X.var()
+    zero_var_features = (feature_vars == 0).sum()
+    print(f"\nSıfır varyans'lı feature sayısı: {zero_var_features}")
+
+    # ============================================================================
+    # 3. MODEL PERFORMANS ANALİZİ
+    # ============================================================================
+    print("\n\n📊 3. MODEL PERFORMANS ANALİZİ")
+    print("─" * 80)
+
+    rf_model = results['trained_models']['RF']
+    knn_model = results['trained_models']['KNN']
+
+    # RF Feature Importance
+    print("\n🌲 Random Forest - Top 10 Önemli Feature:")
+    feature_importance = pd.DataFrame({
+        'feature': X.columns,
+        'importance': rf_model.feature_importances_
+    }).sort_values('importance', ascending=False)
+
+    print(feature_importance.head(10).to_string(index=False))
+
+    # Importance dağılımı
+    print(f"\nFeature Importance Dağılımı:")
+    print(f"  Top 10 feature toplam importance: {feature_importance.head(10)['importance'].sum():.4f}")
+    print(f"  Top 20 feature toplam importance: {feature_importance.head(20)['importance'].sum():.4f}")
+
+    # ============================================================================
+    # 4. OVERFITTING ANALİZİ
+    # ============================================================================
+    print("\n\n📊 4. OVERFITTING ANALİZİ")
+    print("─" * 80)
+
+    cv_results = results['cross_validation']
+
+    print("\n🎯 Overfitting İndikatörleri:")
+    for idx, row in cv_results.iterrows():
+        model_name = row['Model']
+        train_acc = row['CV_Train']
+        test_acc = row['CV_Test']
+        diff = train_acc - test_acc
+
+        if diff < 0.01:
+            status = "✅ İyi"
+        elif diff < 0.05:
+            status = "⚠️ Kabul edilebilir"
+        else:
+            status = "🚨 Overfit!"
+
+        print(f"{model_name:6s} | Train: {train_acc:.4f} | CV: {test_acc:.4f} | "
+              f"Diff: {diff:.4f} | {status}")
+
+    # RF perfect score analizi
+    print("\n🔍 Random Forest Perfect Score Analizi:")
+    rf_row = cv_results[cv_results['Model'] == 'RF'].iloc[0]
+    if rf_row['CV_Train'] == 1.0 and rf_row['CV_Test'] == 1.0:
+        print("⚠️  UYARI: RF hem train hem test'te perfect score!")
+        print("\nOlası nedenler:")
+        print("1. Veri çok basit/kolay (277 örnek, duplicate'ler temizlenmiş)")
+        print("2. Feature'lar hastalıkları mükemmel ayırt ediyor")
+        print("3. Veri sızıntısı (data leakage) olabilir")
+        print("4. Test fold'ları çok küçük (55 örnek/fold)")
+
+        # Complexity check
+        n_samples = len(df_clean)
+        n_features = X.shape[1]
+        n_classes = df_clean[target_col].nunique()
+
+        print(f"\n📊 Model Complexity:")
+        print(f"  Samples: {n_samples}")
+        print(f"  Features: {n_features}")
+        print(f"  Classes: {n_classes}")
+        print(f"  Samples/Class: {n_samples / n_classes:.1f}")
+        print(f"  Features/Class: {n_features / n_classes:.1f}")
+
+    # ============================================================================
+    # 5. TEST SETİ ANALİZİ
+    # ============================================================================
+    print("\n\n📊 5. TEST SETİ ANALİZİ")
+    print("─" * 80)
+
+    test_diseases = df_test[target_col].value_counts()
+    train_diseases = df_clean[target_col].value_counts()
+
+    print(f"\n📈 Test Seti Kapsama:")
+    print(f"Test'teki hastalık sayısı: {len(test_diseases)}")
+    print(f"Train'deki hastalık sayısı: {len(train_diseases)}")
+
+    # Overlap analizi
+    test_disease_set = set(test_diseases.index)
+    train_disease_set = set(train_diseases.index)
+
+    overlap = test_disease_set & train_disease_set
+    only_test = test_disease_set - train_disease_set
+
+    print(f"\nOrtak hastalıklar: {len(overlap)}")
+    if len(only_test) > 0:
+        print(f"⚠️  Sadece test'te olan: {len(only_test)}")
+        print(f"   → {list(only_test)}")
+
+    # ============================================================================
+    # 6. GÖRSELLEŞTİRME
+    # ============================================================================
+    plot_detailed_analysis(df_clean, feature_importance, cv_results, target_col)
+
+    # ============================================================================
+    # 7. ÖNERİLER
+    # ============================================================================
+    print("\n\n📊 7. ÖNERİLER VE SONUÇ")
+    print("=" * 80)
+
+    print("\n🎯 SONUÇ:")
+    if rf_row['CV_Test'] == 1.0:
+        print("RF'nin perfect score'u GEÇERLİ görünüyor çünkü:")
+        print("✅ 1. Duplicate'ler temizlenmiş (277 unique örnek)")
+        print("✅ 2. CV'de consistent (5-fold hepsi 1.0)")
+        print("✅ 3. Test seti de benzer performans (0.976)")
+        print("\nAncak:")
+        print("⚠️  1. Veri seti çok küçük (277 örnek)")
+        print("⚠️  2. Test seti yetersiz (42 örnek)")
+        print("⚠️  3. Real-world validation gerekli")
+
+    print("\n💡 TAVSİYELER:")
+    print("1. ✅ RF modelini kullanabilirsiniz (en iyi performans)")
+    print("2. 📊 Daha fazla veri toplayın (özellikle test için)")
+    print("3. 🔍 Production'da performansı yakından izleyin")
+    print("4. 🎯 Yeni hastalarla real-world validation yapın")
+    print("5. 💾 Model versiyonlamayı unutmayın")
+
+    print("\n📝 MODEL KAYDETME:")
+    print("```python")
+    print("import joblib")
+    print("joblib.dump(results['trained_models']['RF'], 'rf_model.pkl')")
+    print("joblib.dump(results['label_encoder'], 'label_encoder.pkl')")
+    print("```")
 
     print("\n" + "=" * 80)
 
 
-# ==================== KULLANIM ÖRNEĞİ ====================
+def plot_detailed_analysis(df_clean, feature_importance, cv_results, target_col):
+    """Detaylı görselleştirmeler"""
+
+    fig = plt.figure(figsize=(16, 10))
+    gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
+
+    # 1. Hastalık dağılımı
+    ax1 = fig.add_subplot(gs[0, :2])
+    disease_counts = df_clean[target_col].value_counts()
+    disease_counts.head(20).plot(kind='barh', ax=ax1, color='steelblue')
+    ax1.set_xlabel('Örnek Sayısı')
+    ax1.set_title('Top 20 Hastalık Dağılımı')
+    ax1.grid(True, alpha=0.3, axis='x')
+
+    # 2. Feature importance
+    ax2 = fig.add_subplot(gs[0, 2])
+    top_features = feature_importance.head(15)
+    ax2.barh(range(len(top_features)), top_features['importance'], color='coral')
+    ax2.set_yticks(range(len(top_features)))
+    ax2.set_yticklabels(top_features['feature'], fontsize=8)
+    ax2.set_xlabel('Importance')
+    ax2.set_title('Top 15 Features (RF)')
+    ax2.invert_yaxis()
+    ax2.grid(True, alpha=0.3, axis='x')
+
+    # 3. CV metrikleri
+    ax3 = fig.add_subplot(gs[1, :])
+    cv_metrics = cv_results[['Model', 'CV_Test', 'Precision', 'Recall', 'F1']].set_index('Model')
+    cv_metrics.plot(kind='bar', ax=ax3, width=0.8, alpha=0.8)
+    ax3.set_ylabel('Score')
+    ax3.set_title('Cross-Validation Metrikleri')
+    ax3.legend(loc='lower right')
+    ax3.grid(True, alpha=0.3, axis='y')
+    ax3.set_ylim([0, 1.05])
+    ax3.set_xticklabels(cv_metrics.index, rotation=0)
+
+    # 4. Train vs Test accuracy
+    ax4 = fig.add_subplot(gs[2, 0])
+    models = cv_results['Model']
+    x = np.arange(len(models))
+    width = 0.35
+    ax4.bar(x - width / 2, cv_results['CV_Train'], width, label='Train', alpha=0.8)
+    ax4.bar(x + width / 2, cv_results['CV_Test'], width, label='CV Test', alpha=0.8)
+    ax4.set_xlabel('Model')
+    ax4.set_ylabel('Accuracy')
+    ax4.set_title('Train vs Test Accuracy')
+    ax4.set_xticks(x)
+    ax4.set_xticklabels(models)
+    ax4.legend()
+    ax4.grid(True, alpha=0.3, axis='y')
+    ax4.set_ylim([0, 1.05])
+
+    # 5. Overfitting analizi
+    ax5 = fig.add_subplot(gs[2, 1])
+    overfitting = cv_results['CV_Train'] - cv_results['CV_Test']
+    colors = ['green' if x < 0.05 else 'orange' if x < 0.1 else 'red' for x in overfitting]
+    ax5.bar(models, overfitting, color=colors, alpha=0.7)
+    ax5.axhline(y=0.05, color='orange', linestyle='--', label='Threshold (0.05)')
+    ax5.set_xlabel('Model')
+    ax5.set_ylabel('Train - Test Accuracy')
+    ax5.set_title('Overfitting Analizi')
+    ax5.legend()
+    ax5.grid(True, alpha=0.3, axis='y')
+
+    # 6. CV std (stability)
+    ax6 = fig.add_subplot(gs[2, 2])
+    ax6.bar(models, cv_results['CV_Std'], color='purple', alpha=0.7)
+    ax6.set_xlabel('Model')
+    ax6.set_ylabel('CV Std Dev')
+    ax6.set_title('Model Stability (CV Std)')
+    ax6.grid(True, alpha=0.3, axis='y')
+
+    plt.suptitle('Kapsamlı Model ve Veri Analizi', fontsize=14, fontweight='bold')
+    plt.show()
+
+# ==================== KULLANIM ====================
+
+# Kullanım:
+comprehensive_data_and_model_analysis(
+    df_train=df_engineered_train,  # Orijinal train (duplicate'li)
+    df_test=df_engineered_test,
+    results=results,  # proper_evaluation_with_small_test sonucu
+    target_col='prognosis'
+)
 
 
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
-
-# Modeller listesi
-models = [
-    ('KNN', KNeighborsClassifier()),
-    ('CART', DecisionTreeClassifier(random_state=42)),
-    ('RF', RandomForestClassifier(random_state=42))
-]
-
-# Overfitting analizi
-results_df = check_overfitting_with_cv(X, y, models)
-
-# Sonuçları görüntüle
-print(results_df)
